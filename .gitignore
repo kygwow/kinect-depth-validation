@@ -9,10 +9,17 @@ env/
 
 # Local package installs and pip scratch space
 .packages/
+.build-packages/
 .pip-tmp/
+.pip-build-tmp/
 .pip-sitecustomize/
 pip-*/
 tmp*/
+
+# PyInstaller
+build/
+dist/
+*.spec
 
 # Captured depth images
 captures/
