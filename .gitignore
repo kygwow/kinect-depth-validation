@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+.venv/
+venv/
+env/
+
+# Local package installs and pip scratch space
+.packages/
+.pip-tmp/
+.pip-sitecustomize/
+pip-*/
+tmp*/
+
+# Captured depth images
+captures/
+*.png
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
