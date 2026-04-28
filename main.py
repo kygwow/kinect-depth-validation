@@ -1,9 +1,7 @@
 import os
 import sys
-import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import messagebox
 
 import cv2
 import numpy as np
@@ -17,6 +15,7 @@ DEFAULT_SDK_BIN_PATH = (
 SDK_BIN_PATH = os.environ.get("AZURE_KINECT_SDK_BIN_PATH", DEFAULT_SDK_BIN_PATH)
 CAMERA_PRIVACY_SETTINGS_URI = "ms-settings:privacy-webcam"
 PREVIEW_WINDOW_NAME = PROJECT_NAME
+CONTROL_WINDOW_NAME = f"{PROJECT_NAME} Controls"
 CAPTURE_DIR = Path("captures")
 MANUAL_RANGE_MAX_MM = 10000
 MIN_RESOLVABLE_DEPTH_MM = 250
@@ -90,81 +89,31 @@ def print_device_start_help() -> None:
 class RangeControls:
     def __init__(self) -> None:
         self.save_requested = False
-        self.tk_available = True
         self.auto_range = True
         self.manual_min_mm = DEFAULT_MANUAL_MIN_MM
         self.manual_max_mm = DEFAULT_MANUAL_MAX_MM
+        self.min_text = str(DEFAULT_MANUAL_MIN_MM)
+        self.max_text = str(DEFAULT_MANUAL_MAX_MM)
+        self.active_field = None
+        self.status = "Ready"
+        self.regions = {}
 
-        try:
-            self.root = tk.Tk()
-        except tk.TclError:
-            self.tk_available = False
-            self.root = None
-            return
-
-        self.root.title(f"{PROJECT_NAME} Controls")
-        self.auto_var = tk.IntVar(value=1)
-        self.min_var = tk.StringVar(value=str(DEFAULT_MANUAL_MIN_MM))
-        self.max_var = tk.StringVar(value=str(DEFAULT_MANUAL_MAX_MM))
-        self.status_var = tk.StringVar(value="Ready")
-
-        tk.Checkbutton(
-            self.root,
-            text="Auto range",
-            variable=self.auto_var,
-            command=self.apply_auto_range_state,
-        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(8, 2))
-
-        tk.Label(self.root, text="Min mm").grid(row=1, column=0, sticky="e", padx=8, pady=2)
-        self.min_entry = tk.Entry(self.root, textvariable=self.min_var, width=10)
-        self.min_entry.grid(row=1, column=1, sticky="w", padx=8, pady=2)
-
-        tk.Label(self.root, text="Max mm").grid(row=2, column=0, sticky="e", padx=8, pady=2)
-        self.max_entry = tk.Entry(self.root, textvariable=self.max_var, width=10)
-        self.max_entry.grid(row=2, column=1, sticky="w", padx=8, pady=2)
-
-        tk.Button(self.root, text="Apply Range", command=self.apply_manual_range).grid(
-            row=3, column=0, padx=8, pady=8
-        )
-        tk.Button(self.root, text="Save PNG", command=self.request_save).grid(
-            row=3, column=1, padx=8, pady=8
-        )
-        tk.Label(self.root, textvariable=self.status_var, anchor="w").grid(
-            row=4, column=0, columnspan=2, sticky="we", padx=8, pady=(0, 8)
-        )
-
-        self.min_entry.bind("<Return>", lambda _event: self.apply_manual_range())
-        self.max_entry.bind("<Return>", lambda _event: self.apply_manual_range())
-        self.root.protocol("WM_DELETE_WINDOW", self.root.withdraw)
-
-    def apply_auto_range_state(self) -> None:
-        if not self.tk_available:
-            return
-        self.auto_range = bool(self.auto_var.get())
-        self.set_status("Auto range enabled" if self.auto_range else "Manual range enabled")
+        cv2.namedWindow(CONTROL_WINDOW_NAME, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(CONTROL_WINDOW_NAME, 460, 260)
+        cv2.setMouseCallback(CONTROL_WINDOW_NAME, self.on_mouse)
 
     def sync_from_state(self) -> None:
-        if not self.tk_available:
-            return
-
-        auto_value = 1 if self.auto_range else 0
-        if self.auto_var.get() != auto_value:
-            self.auto_var.set(auto_value)
-        focused_widget = self.root.focus_get()
-        if focused_widget not in (self.min_entry, self.max_entry):
-            if self.min_var.get() != str(self.manual_min_mm):
-                self.min_var.set(str(self.manual_min_mm))
-            if self.max_var.get() != str(self.manual_max_mm):
-                self.max_var.set(str(self.manual_max_mm))
+        if self.active_field != "min" and self.min_text != str(self.manual_min_mm):
+            self.min_text = str(self.manual_min_mm)
+        if self.active_field != "max" and self.max_text != str(self.manual_max_mm):
+            self.max_text = str(self.manual_max_mm)
 
     def apply_manual_range(self) -> None:
         try:
-            min_mm = int(self.min_var.get())
-            max_mm = int(self.max_var.get())
+            min_mm = int(self.min_text)
+            max_mm = int(self.max_text)
         except ValueError:
             self.set_status("Min/max must be integers")
-            if self.tk_available:
-                messagebox.showerror("Invalid range", "Min/max range must be integer values.")
             return
 
         min_mm = max(MIN_RESOLVABLE_DEPTH_MM, min(min_mm, MANUAL_RANGE_MAX_MM))
@@ -172,23 +121,18 @@ class RangeControls:
 
         if max_mm <= min_mm:
             self.set_status("Max must be greater than min")
-            if self.tk_available:
-                messagebox.showerror("Invalid range", "Max mm must be greater than Min mm.")
             return
 
         self.auto_range = False
         self.manual_min_mm = min_mm
         self.manual_max_mm = max_mm
-        if self.tk_available:
-            self.auto_var.set(0)
-            self.min_var.set(str(min_mm))
-            self.max_var.set(str(max_mm))
+        self.min_text = str(min_mm)
+        self.max_text = str(max_mm)
+        self.active_field = None
         self.set_status(f"Manual range applied: {min_mm}-{max_mm} mm")
 
     def toggle_auto_range(self) -> None:
         self.auto_range = not self.auto_range
-        if self.tk_available:
-            self.auto_var.set(1 if self.auto_range else 0)
         self.set_status("Auto range enabled" if self.auto_range else "Manual range enabled")
 
     def get_range(self, depth_image: np.ndarray) -> tuple[int, int]:
@@ -205,26 +149,118 @@ class RangeControls:
         return True
 
     def set_status(self, message: str) -> None:
-        if self.tk_available:
-            self.status_var.set(message)
+        self.status = message
         print(message)
 
     def update(self) -> None:
-        if not self.tk_available:
+        panel = np.full((260, 460, 3), 36, dtype=np.uint8)
+        cv2.putText(
+            panel,
+            "Depth Controls",
+            (16, 32),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.82,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+
+        self.regions = {
+            "auto": (18, 54, 214, 92),
+            "min": (136, 108, 282, 146),
+            "max": (136, 154, 282, 192),
+            "apply": (306, 108, 438, 146),
+            "save": (306, 154, 438, 192),
+        }
+
+        self.draw_button(panel, "auto", "Auto: ON" if self.auto_range else "Auto: OFF")
+        self.draw_label(panel, "Min mm", (18, 134))
+        self.draw_label(panel, "Max mm", (18, 180))
+        self.draw_input(panel, "min", self.min_text)
+        self.draw_input(panel, "max", self.max_text)
+        self.draw_button(panel, "apply", "Apply Range")
+        self.draw_button(panel, "save", "Save PNG")
+
+        cv2.putText(
+            panel,
+            self.status[:54],
+            (18, 232),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (210, 230, 255),
+            1,
+            cv2.LINE_AA,
+        )
+
+        cv2.imshow(CONTROL_WINDOW_NAME, panel)
+
+    def draw_label(self, panel: np.ndarray, text: str, origin: tuple[int, int]) -> None:
+        cv2.putText(panel, text, origin, cv2.FONT_HERSHEY_SIMPLEX, 0.58, (230, 230, 230), 1, cv2.LINE_AA)
+
+    def draw_button(self, panel: np.ndarray, region_key: str, text: str) -> None:
+        x1, y1, x2, y2 = self.regions[region_key]
+        color = (86, 125, 170) if region_key != "save" else (72, 145, 102)
+        cv2.rectangle(panel, (x1, y1), (x2, y2), color, -1)
+        cv2.rectangle(panel, (x1, y1), (x2, y2), (210, 220, 230), 1)
+        cv2.putText(panel, text, (x1 + 10, y1 + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+
+    def draw_input(self, panel: np.ndarray, region_key: str, text: str) -> None:
+        x1, y1, x2, y2 = self.regions[region_key]
+        border = (80, 190, 255) if self.active_field == region_key else (160, 170, 180)
+        cv2.rectangle(panel, (x1, y1), (x2, y2), (245, 245, 245), -1)
+        cv2.rectangle(panel, (x1, y1), (x2, y2), border, 2)
+        cursor = "|" if self.active_field == region_key else ""
+        cv2.putText(panel, f"{text}{cursor}", (x1 + 10, y1 + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (20, 20, 20), 1, cv2.LINE_AA)
+
+    def on_mouse(self, event: int, x: int, y: int, _flags: int, _param) -> None:
+        if event != cv2.EVENT_LBUTTONDOWN:
             return
-        try:
-            self.root.update_idletasks()
-            self.root.update()
-        except tk.TclError:
-            self.tk_available = False
+
+        clicked = None
+        for key, (x1, y1, x2, y2) in self.regions.items():
+            if x1 <= x <= x2 and y1 <= y <= y2:
+                clicked = key
+                break
+
+        if clicked == "auto":
+            self.toggle_auto_range()
+            self.active_field = None
+        elif clicked in ("min", "max"):
+            self.active_field = clicked
+        elif clicked == "apply":
+            self.apply_manual_range()
+        elif clicked == "save":
+            self.request_save()
+            self.active_field = None
+        else:
+            self.active_field = None
+
+    def handle_key(self, key: int) -> bool:
+        if self.active_field not in ("min", "max") or key == 255:
+            return False
+
+        if key in (13, 10):
+            self.apply_manual_range()
+            return True
+
+        if key in (8, 127):
+            if self.active_field == "min":
+                self.min_text = self.min_text[:-1]
+            else:
+                self.max_text = self.max_text[:-1]
+            return True
+
+        if ord("0") <= key <= ord("9"):
+            if self.active_field == "min":
+                self.min_text = (self.min_text + chr(key))[:5]
+            else:
+                self.max_text = (self.max_text + chr(key))[:5]
+            return True
+
+        return False
 
     def close(self) -> None:
-        if self.tk_available:
-            try:
-                self.root.destroy()
-            except tk.TclError:
-                pass
-            self.tk_available = False
+        cv2.destroyWindow(CONTROL_WINDOW_NAME)
 
 
 def create_range_controls() -> RangeControls:
@@ -422,6 +458,8 @@ def main() -> None:
             cv2.imshow(PREVIEW_WINDOW_NAME, depth_display)
 
             key = cv2.waitKey(1) & 0xFF
+            if controls.handle_key(key):
+                continue
             if key == 27:
                 break
             if key == ord("m"):
