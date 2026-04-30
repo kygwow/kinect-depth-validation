@@ -5,6 +5,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$PythonRoot = Split-Path -Parent $PythonExe
+$CondaLibraryBin = Join-Path $PythonRoot "Library\bin"
 $BuildPackages = Join-Path $ProjectRoot ".build-packages"
 $PipTemp = Join-Path $ProjectRoot ".pip-build-tmp"
 $SiteCustomize = Join-Path $ProjectRoot ".pip-sitecustomize"
@@ -18,29 +20,44 @@ $env:PYTHONPATH = "$SiteCustomize;$BuildPackages"
 
 & $PythonExe -m pip install --target $BuildPackages --upgrade --no-cache-dir --no-build-isolation `
     pyinstaller `
-    pyk4a `
     opencv-python `
     numpy
 
-& $PythonExe -m PyInstaller `
-    --clean `
-    --noconfirm `
-    --onedir `
-    --name "KinectDepthCameraValidation" `
-    --paths $BuildPackages `
-    --hidden-import pyk4a `
-    --hidden-import k4a_module `
-    --collect-submodules pyk4a `
-    --collect-binaries pyk4a `
-    --collect-data pyk4a `
-    --collect-binaries cv2 `
-    --exclude-module tkinter `
-    --exclude-module PyQt5 `
-    --exclude-module PySide6 `
-    --exclude-module matplotlib `
-    --exclude-module IPython `
-    --exclude-module numba `
-    main.py
+$PyInstallerArgs = @(
+    "--clean",
+    "--noconfirm",
+    "--onedir",
+    "--name", "KinectDepthCameraValidation",
+    "--paths", $BuildPackages,
+    "--collect-binaries", "cv2",
+    "--exclude-module", "tkinter",
+    "--exclude-module", "PyQt5",
+    "--exclude-module", "PySide6",
+    "--exclude-module", "matplotlib",
+    "--exclude-module", "IPython",
+    "--exclude-module", "numba"
+)
+
+if (Test-Path -LiteralPath $CondaLibraryBin) {
+    $CondaDlls = @(
+        "ffi.dll",
+        "libcrypto-3-x64.dll",
+        "libssl-3-x64.dll",
+        "libbz2.dll",
+        "libexpat.dll"
+    )
+
+    foreach ($DllName in $CondaDlls) {
+        $DllPath = Join-Path $CondaLibraryBin $DllName
+        if (Test-Path -LiteralPath $DllPath) {
+            $PyInstallerArgs += @("--add-binary", "$DllPath;.")
+        }
+    }
+}
+
+$PyInstallerArgs += "main.py"
+
+& $PythonExe -m PyInstaller @PyInstallerArgs
 
 Write-Host ""
 Write-Host "Build complete:"
