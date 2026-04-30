@@ -1,3 +1,2 @@
-pyk4a
 opencv-python
 numpy
